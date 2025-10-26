@@ -127,7 +127,7 @@ mod tests {
     use crate::errors::ClientTransactionError;
 
     #[test]
-    fn deposit_updates_balances_and_records_transaction() {
+    fn successful_deposit_and_stores_transaction() {
         let mut client = Client::new(1);
         client.deposit(1, dec!(10.5)).unwrap();
 
@@ -139,7 +139,23 @@ mod tests {
     }
 
     #[test]
-    fn withdraw_reduces_balances_when_sufficient_funds() {
+    fn deposit_rejected_when_account_locked() {
+        let mut client = Client::new(1);
+        client.locked = true;
+
+        let result = client.deposit(1, dec!(5));
+
+        assert!(matches!(
+            result,
+            Err(ClientTransactionError::AccountLocked { client_id: 1 })
+        ));
+        assert_eq!(client.available, dec!(0));
+        assert_eq!(client.total, dec!(0));
+        assert!(client.deposit_transactions.is_empty());
+    }
+
+    #[test]
+    fn successful_withdraw_deducts_available_balance() {
         let mut client = Client::new(1);
         client.deposit(1, dec!(10)).unwrap();
         let result = client.withdraw(dec!(4));
@@ -151,7 +167,7 @@ mod tests {
     }
 
     #[test]
-    fn withdraw_fails_when_insufficient_funds() {
+    fn withdraw_rejected_insufficiente_funds() {
         let mut client = Client::new(1);
         client.deposit(1, dec!(5)).unwrap();
         let result = client.withdraw(dec!(7));
@@ -165,7 +181,23 @@ mod tests {
     }
 
     #[test]
-    fn dispute_moves_funds_from_available_to_held() {
+    fn withdraw_rejected_when_account_locked() {
+        let mut client = Client::new(1);
+        client.deposit(1, dec!(6)).unwrap();
+        client.locked = true;
+
+        let result = client.withdraw(dec!(2));
+
+        assert!(matches!(
+            result,
+            Err(ClientTransactionError::AccountLocked { client_id: 1 })
+        ));
+        assert_eq!(client.available, dec!(6));
+        assert_eq!(client.total, dec!(6));
+    }
+
+    #[test]
+    fn dispute_moves_deposit_to_held_balance() {
         let mut client = Client::new(1);
         client.deposit(1, dec!(9)).unwrap();
         let result = client.dispute(1);
@@ -178,21 +210,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_returns_disputed_funds_to_available() {
-        let mut client = Client::new(1);
-        client.deposit(1, dec!(8)).unwrap();
-        client.dispute(1).unwrap();
-        let result = client.resolve(1);
-
-        assert!(result.is_ok());
-        assert_eq!(client.available, dec!(8));
-        assert_eq!(client.held, dec!(0));
-        assert_eq!(client.total, dec!(8));
-        assert!(!client.disputed_transactions.contains_key(&1));
-    }
-
-    #[test]
-    fn dispute_returns_error_when_transaction_unknown() {
+    fn dispute_rejected_unknown_transactions() {
         let mut client = Client::new(1);
         let result = client.dispute(999);
 
@@ -206,36 +224,39 @@ mod tests {
     }
 
     #[test]
-    fn chargeback_deducts_total_and_locks_account() {
+    fn dispute_supports_multiple_transactions_in_parallel() {
         let mut client = Client::new(1);
-        client.deposit(1, dec!(12)).unwrap();
-        client.dispute(1).unwrap();
-        let result = client.chargeback(1);
+        client.deposit(1, dec!(6)).unwrap();
+        client.deposit(2, dec!(4)).unwrap();
 
-        assert!(result.is_ok());
+        client.dispute(1).unwrap();
+        client.dispute(2).unwrap();
+
         assert_eq!(client.available, dec!(0));
-        assert_eq!(client.held, dec!(0));
-        assert_eq!(client.total, dec!(0));
-        assert!(client.locked);
-        assert!(!client.disputed_transactions.contains_key(&1));
+        assert_eq!(client.held, dec!(10));
+        assert_eq!(client.total, dec!(10));
+        assert!(client.disputed_transactions.contains_key(&1));
+        assert!(client.disputed_transactions.contains_key(&2));
     }
 
     #[test]
-    fn chargeback_returns_error_when_account_already_locked() {
+    fn dispute_rejected_when_account_locked() {
         let mut client = Client::new(1);
-        client.deposit(1, dec!(10)).unwrap();
-        client.dispute(1).unwrap();
-        client.chargeback(1).unwrap();
+        client.deposit(1, dec!(6)).unwrap();
+        client.locked = true;
 
-        let result = client.chargeback(1);
+        let result = client.dispute(1);
+
         assert!(matches!(
             result,
-            Err(ClientTransactionError::AccountAlreadyLocked { client_id: 1 })
+            Err(ClientTransactionError::AccountLocked { client_id: 1 })
         ));
+        assert!(client.disputed_transactions.is_empty());
+        assert_eq!(client.held, dec!(0));
     }
 
     #[test]
-    fn dispute_handles_insufficient_available_funds() {
+    fn dispute_reallocates_funds_when_available_balance_is_negative() {
         let mut client = Client::new(1);
         client.deposit(1, dec!(5)).unwrap();
         client.withdraw(dec!(4)).unwrap();
@@ -249,7 +270,92 @@ mod tests {
     }
 
     #[test]
-    fn chargeback_returns_error_when_transaction_not_in_dispute() {
+    fn resolve_releases_held_funds_back_to_available() {
+        let mut client = Client::new(1);
+        client.deposit(1, dec!(8)).unwrap();
+        client.dispute(1).unwrap();
+        let result = client.resolve(1);
+
+        assert!(result.is_ok());
+        assert_eq!(client.available, dec!(8));
+        assert_eq!(client.held, dec!(0));
+        assert_eq!(client.total, dec!(8));
+        assert!(!client.disputed_transactions.contains_key(&1));
+    }
+
+    #[test]
+    fn resolve_fails_transactions_not_in_dispute() {
+        let mut client = Client::new(1);
+        let result = client.resolve(999);
+
+        assert!(matches!(
+            result,
+            Err(ClientTransactionError::NotInDispute {
+                client_id: 1,
+                tx_id: 999
+            })
+        ));
+    }
+
+    #[test]
+    fn resolve_rejected_when_account_locked() {
+        let mut client = Client::new(1);
+        client.deposit(1, dec!(8)).unwrap();
+        client.dispute(1).unwrap();
+        client.locked = true;
+
+        let result = client.resolve(1);
+
+        assert!(matches!(
+            result,
+            Err(ClientTransactionError::AccountLocked { client_id: 1 })
+        ));
+        assert_eq!(client.held, dec!(8));
+        assert!(client.disputed_transactions.contains_key(&1));
+    }
+
+    #[test]
+    fn resolve_rejected_when_held_balance_is_insufficient() {
+        let mut client = Client::new(1);
+        client.deposit(1, dec!(5)).unwrap();
+        client.dispute(1).unwrap();
+        client.held = dec!(1);
+
+        let result = client.resolve(1);
+
+        assert!(matches!(
+            result,
+            Err(ClientTransactionError::InsufficientHeldFunds {
+                client_id: 1,
+                action: "resolve"
+            })
+        ));
+        assert!(client.disputed_transactions.contains_key(&1));
+    }
+
+    #[test]
+    fn chargeback_sets_account_locked_and_removes_funds() {
+        let mut client = Client::new(1);
+        client.deposit(1, dec!(12)).unwrap();
+        client.dispute(1).unwrap();
+
+        assert_eq!(client.available, dec!(0));
+        assert_eq!(client.held, dec!(12));
+        assert_eq!(client.total, dec!(12));
+        assert!(client.disputed_transactions.contains_key(&1));
+
+        let result = client.chargeback(1);
+
+        assert!(result.is_ok());
+        assert_eq!(client.available, dec!(0));
+        assert_eq!(client.held, dec!(0));
+        assert_eq!(client.total, dec!(0));
+        assert!(client.locked);
+        assert!(!client.disputed_transactions.contains_key(&1));
+    }
+
+    #[test]
+    fn chargeback_rejected_when_not_in_dispute() {
         let mut client = Client::new(1);
         client.deposit(1, dec!(5)).unwrap();
 
@@ -265,32 +371,33 @@ mod tests {
     }
 
     #[test]
-    fn resolve_returns_error_when_transaction_not_in_dispute() {
+    fn chargeback_rejected_when_account_already_locked() {
         let mut client = Client::new(1);
-        let result = client.resolve(999);
+        client.deposit(1, dec!(10)).unwrap();
+        client.dispute(1).unwrap();
+        client.chargeback(1).unwrap();
 
+        let result = client.chargeback(1);
         assert!(matches!(
             result,
-            Err(ClientTransactionError::NotInDispute {
-                client_id: 1,
-                tx_id: 999
-            })
+            Err(ClientTransactionError::AccountAlreadyLocked { client_id: 1 })
         ));
     }
 
     #[test]
-    fn dispute_returns_error_when_transaction_already_in_dispute() {
+    fn chargeback_rejected_when_held_balance_is_insufficient() {
         let mut client = Client::new(1);
-        client.deposit(1, dec!(6)).unwrap();
+        client.deposit(1, dec!(9)).unwrap();
         client.dispute(1).unwrap();
+        client.held = dec!(1);
 
-        let result = client.dispute(1);
+        let result = client.chargeback(1);
 
         assert!(matches!(
             result,
-            Err(ClientTransactionError::AlreadyInDispute {
+            Err(ClientTransactionError::InsufficientHeldFunds {
                 client_id: 1,
-                tx_id: 1
+                action: "chargeback"
             })
         ));
     }

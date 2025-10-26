@@ -28,6 +28,8 @@ withdrawal,5,18,3.0890
 deposit,5,19,5.5
 dispute,5,17,
 resolve,5,17,
+dispute,5,19,
+dispute,5,17,
 deposit,6,20,12.0
 withdrawal,6,21,2.0834888
 deposit,6,22,3.0
