@@ -10,8 +10,8 @@ fn csv_lines(lines: &[&str]) -> String {
 fn get_output_from_raw_csv(csv: &str) -> String {
     let mut output = Vec::new();
     process_transactions(Cursor::new(csv.as_bytes()), &mut output)
-        .expect("processing transactions");
-    String::from_utf8(output).expect("csv writer produces utf-8")
+        .expect("Something failed while processing transactions");
+    String::from_utf8(output).expect("Output is not valid UTF-8")
 }
 
 #[test]

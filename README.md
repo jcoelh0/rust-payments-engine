@@ -16,10 +16,10 @@
 
 ## AI Usage Disclosure
 
-I used AI to assist with error handling structure (thiserror crate) and test scaffolding.
+I used AI to assist with error handling structure (defining enums and error messages) and test scaffolding.
 The overall structure, design, and decision to implement custom error types with the thiserror crate were entirely my own.
 The prompts helped with:
 	• Error handling: generating boilerplate and refining the syntax for two custom error types under src/errors, based on my input of the failure points.
 	• Testing: generating initial test cases after I described the edge cases, inputs, and expected outputs. I reviewed, adjusted, and expanded all tests manually to ensure full coverage and correctness.
-
+    • Input file: generating a csv file with multiple rows and realistic examples.
 All architecture, logic, and implementation choices were mine. The AI support was limited to code refinement and syntax assistance.

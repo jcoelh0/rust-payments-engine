@@ -24,7 +24,7 @@ struct InputTransaction {
 }
 
 pub fn format_decimal(value: Decimal) -> String {
-    format!("{:.4}", value)
+    format!("{value:.4}")
 }
 
 enum ValidatedTransaction {
@@ -90,7 +90,7 @@ pub fn process_transactions<R: Read, W: Write>(source: R, writer: W) -> Result<(
         let validated = match validate_transaction(tx_type, client_id, tx, amount) {
             Ok(value) => value,
             Err(err) => {
-                error!("{}", err);
+                error!("{err}");
                 continue;
             }
         };
@@ -101,40 +101,37 @@ pub fn process_transactions<R: Read, W: Write>(source: R, writer: W) -> Result<(
         match (tx_type, validated) {
             (TransactionType::Deposit, ValidatedTransaction::WithAmount { tx, amount }) => {
                 if let Err(e) = client.deposit(tx, amount) {
-                    error!("Error processing deposit: {}", e);
+                    error!("Error processing deposit: {e}");
                 }
             }
             (TransactionType::Withdrawal, ValidatedTransaction::WithAmount { tx: _, amount }) => {
                 if let Err(e) = client.withdraw(amount) {
-                    error!("Error processing withdrawal: {}", e);
+                    error!("Error processing withdrawal: {e}");
                 }
             }
             (TransactionType::Dispute, ValidatedTransaction::NoAmount { tx }) => {
                 if let Err(e) = client.dispute(tx) {
-                    error!("Partner's error processing dispute: {}", e);
+                    error!("Partner's error processing dispute: {e}");
                 }
             }
             (TransactionType::Resolve, ValidatedTransaction::NoAmount { tx }) => {
                 if let Err(e) = client.resolve(tx) {
-                    error!("Partner's error processing resolve: {}", e);
+                    error!("Partner's error processing resolve: {e}");
                 }
             }
             (TransactionType::Chargeback, ValidatedTransaction::NoAmount { tx }) => {
                 if let Err(e) = client.chargeback(tx) {
-                    error!("Partner's error processing chargeback: {}", e);
+                    error!("Partner's error processing chargeback: {e}");
                 }
             }
             (tx_type, _) => {
-                error!(
-                    "Validation mismatch for client {} on transaction type {}",
-                    client_id, tx_type
-                );
+                error!("Validation mismatch for client {client_id} on transaction type {tx_type}",);
             }
         }
     }
 
     let mut csv_writer = csv::Writer::from_writer(writer);
-    csv_writer.write_record(&["client", "available", "held", "total", "locked"])?;
+    csv_writer.write_record(["client", "available", "held", "total", "locked"])?;
 
     let mut clients_sorted: Vec<&Client> = clients.values().collect();
     clients_sorted.sort_by_key(|client| client.id);
